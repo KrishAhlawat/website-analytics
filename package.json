@@ -1,0 +1,41 @@
+{
+  "name": "website-analytics",
+  "version": "1.0.0",
+  "description": "High-performance website analytics platform with queue-based event processing",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "tsx watch worker/processor.ts",
+    "worker:prod": "tsx worker/processor.ts",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "test:api": "tsx scripts/test-analytics.ts",
+    "generate:data": "tsx scripts/generate-sample-data.ts",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "mongoose": "^8.3.0",
+    "bullmq": "^5.7.0",
+    "ioredis": "^5.4.0",
+    "zod": "^3.23.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
