@@ -1,0 +1,16 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 20
+scenarios:
+  - flow:
+      - post:
+          url: "/api/event"
+          headers:
+            Content-Type: "application/json"
+            x-api-key: "{{ api_key }}"
+          json:
+            event_type: "pageview"
+            path: "/load-test"
+            user_id: "user-{{ $randomInt(1,1000) }}"

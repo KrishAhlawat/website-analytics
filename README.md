@@ -132,6 +132,43 @@ npm run worker:prod
 - Writes to MongoDB
 - Updates aggregated stats
 
+### New: Create Site (API key)
+
+To send events you must create a site and API key:
+
+```bash
+curl -X POST http://localhost:3000/api/site/create \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "my-website" }'
+```
+
+Response includes `site_id` and `api_key`. Use the `api_key` in the `x-api-key` header for `POST /api/event`.
+
+### Rate Limiting
+
+The ingestion endpoint enforces a Redis-based rate limit: `100 requests per IP per minute` by default. If exceeded the API returns `429 Rate limit exceeded`.
+
+### Cron Worker
+
+Run the cron cleanup job (deletes events older than 7 days and pre-creates daily_stats placeholders):
+
+```bash
+npm run cron
+```
+
+### Docker
+
+Build and start services (server + worker + mongodb + redis):
+
+```bash
+# Build and start
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+```
+
+
 ---
 
 ## 📡 API Usage

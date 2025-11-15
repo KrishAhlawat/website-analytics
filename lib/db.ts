@@ -87,6 +87,18 @@ EventSchema.index({ site_id: 1, timestamp: -1 });
 export const Event = mongoose.models.Event || mongoose.model('Event', EventSchema);
 export const DailyStats = mongoose.models.DailyStats || mongoose.model('DailyStats', DailyStatsSchema);
 
+// Sites Schema - for API key management
+const SiteSchema = new mongoose.Schema({
+  site_id: { type: String, required: true, unique: true, index: true },
+  api_key: { type: String, required: true, unique: true, index: true },
+  name: { type: String, required: true },
+  created_at: { type: Date, default: Date.now },
+}, {
+  timestamps: true,
+});
+
+export const Site = mongoose.models.Site || mongoose.model('Site', SiteSchema);
+
 // Type exports
 export interface IEvent {
   site_id: string;
@@ -104,4 +116,11 @@ export interface IDailyStats {
   unique_users: string[];
   path_counts: Map<string, number>;
   updated_at: Date;
+}
+
+export interface ISite {
+  site_id: string;
+  api_key: string;
+  name: string;
+  created_at?: Date;
 }

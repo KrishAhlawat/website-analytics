@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateEvent } from '@/lib/validateEvent';
 import { addEventToQueue } from '@/lib/queue';
 import { PerformanceTimer } from '@/lib/utils';
+import { connectDB, Site } from '@/lib/db';
+import { checkRateLimit } from '@/lib/rateLimiter';
 
 /**
  * POST /api/event
@@ -16,10 +18,29 @@ export async function POST(request: NextRequest) {
   const timer = new PerformanceTimer('Ingestion API');
   
   try {
+    // Rate limit by IP
+    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || request.headers.get('host') || 'unknown';
+    const rl = await checkRateLimit(ip);
+    if (!rl.allowed) {
+      return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 });
+    }
+
+    // Authenticate by API key
+    const apiKey = request.headers.get('x-api-key');
+    if (!apiKey) {
+      return NextResponse.json({ success: false, error: 'Missing x-api-key header' }, { status: 401 });
+    }
+
+    await connectDB();
+    const site = await Site.findOne({ api_key: apiKey }).lean();
+    if (!site) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Parse request body
     const body = await request.json();
-    
-    // Validate event data
+
+    // Validate event data (site_id optional in schema)
     const validation = validateEvent(body);
     
     if (!validation.success) {
@@ -37,8 +58,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Attach site_id from authenticated site
+    const eventData = { ...validation.data!, site_id: site.site_id };
+
     // Push event to queue (non-blocking)
-    await addEventToQueue(validation.data!);
+    await addEventToQueue(eventData as any);
     
     const duration = timer.end();
     
@@ -76,7 +100,7 @@ export async function OPTIONS(request: NextRequest) {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key, X-Api-Key',
       },
     }
   );

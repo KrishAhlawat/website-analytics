@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 // Event validation schema
 export const EventSchema = z.object({
-  site_id: z.string().min(1, 'site_id is required').max(100),
+  // site_id will be injected from API key; optional in payload
+  site_id: z.string().min(1, 'site_id is required').max(100).optional(),
   event_type: z.string().min(1, 'event_type is required').max(50),
   path: z.string().min(1, 'path is required').max(500),
   user_id: z.string().min(1, 'user_id is required').max(100),
@@ -61,7 +62,7 @@ export function validateStatsQuery(data: unknown): {
 
 // Type definitions
 export interface AnalyticsEvent {
-  site_id: string;
+  site_id?: string;
   event_type: string;
   path: string;
   user_id: string;

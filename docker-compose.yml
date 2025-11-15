@@ -23,6 +23,36 @@ services:
     networks:
       - analytics-network
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: analytics-api
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - analytics-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: analytics-worker
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - analytics-network
+
 volumes:
   mongodb_data:
   redis_data:
