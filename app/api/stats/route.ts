@@ -53,6 +53,11 @@ export async function GET(request: NextRequest) {
     // Calculate summary metrics
     let total_views = 0;
     let unique_visitors = new Set<string>();
+    let total_sessions = 0;
+    let total_session_duration = 0;
+    let total_pages_per_session = 0;
+    let total_bounce_rate = 0;
+    let statsCount = 0;
     const pathCountsMap = new Map<string, number>();
     const deviceCountsMap = new Map<string, number>();
     const dailyData: Array<{ date: string; views: number; visitors: number }> = [];
@@ -65,10 +70,25 @@ export async function GET(request: NextRequest) {
         dayStat.unique_users.forEach((userId: string) => unique_visitors.add(userId));
       }
 
+      // Aggregate session metrics
+      if (dayStat.sessions_count) {
+        total_sessions += dayStat.sessions_count;
+        total_session_duration += (dayStat.avg_session_duration || 0) * dayStat.sessions_count;
+        total_pages_per_session += (dayStat.avg_pages_per_session || 0) * dayStat.sessions_count;
+        total_bounce_rate += dayStat.bounce_rate || 0;
+        statsCount++;
+      }
+
       // Aggregate path counts
       const pathCounts = dayStat.path_counts || {};
       Object.entries(pathCounts).forEach(([path, count]) => {
         pathCountsMap.set(path, (pathCountsMap.get(path) || 0) + (count as number));
+      });
+
+      // Aggregate device counts
+      const deviceCounts = dayStat.device_counts || {};
+      Object.entries(deviceCounts).forEach(([device, count]) => {
+        deviceCountsMap.set(device, (deviceCountsMap.get(device) || 0) + (count as number));
       });
 
       // Daily breakdown
@@ -79,30 +99,21 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get device breakdown from recent events (last 7 days of range)
-    const recentStartDate = stats.length > 7 ? stats[stats.length - 7].date : start_date;
-    const deviceStats = await Event.aggregate([
-      {
-        $match: {
-          site_id,
-          timestamp: {
-            $gte: new Date(recentStartDate),
-            $lte: new Date(end_date + 'T23:59:59.999Z'),
-          },
-        },
-      },
-      {
-        $group: {
-          _id: '$device_type',
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    // Calculate averages
+    const avg_session_duration = total_sessions > 0 
+      ? Math.round(total_session_duration / total_sessions)
+      : 0;
+    const avg_pages_per_session = total_sessions > 0 
+      ? Math.round((total_pages_per_session / total_sessions) * 10) / 10
+      : 0;
+    const bounce_rate = statsCount > 0 
+      ? Math.round((total_bounce_rate / statsCount) * 10) / 10
+      : 0;
 
-    const devices = deviceStats.map((d) => ({
-      device: d._id || 'Unknown',
-      count: d.count,
-    }));
+    // Device breakdown from aggregated counts
+    const devices = Array.from(deviceCountsMap.entries())
+      .map(([device, count]) => ({ device, count }))
+      .sort((a, b) => b.count - a.count);
 
     // Top pages
     const top_pages = Array.from(pathCountsMap.entries())
@@ -122,13 +133,30 @@ export async function GET(request: NextRequest) {
 
     let prev_total_views = 0;
     let prev_unique_visitors = new Set<string>();
+    let prev_total_sessions = 0;
+    let prev_total_session_duration = 0;
+    let prev_total_bounce_rate = 0;
+    let prevStatsCount = 0;
     
     for (const dayStat of prevStats) {
       prev_total_views += dayStat.total_views || 0;
       if (dayStat.unique_users) {
         dayStat.unique_users.forEach((userId: string) => prev_unique_visitors.add(userId));
       }
+      if (dayStat.sessions_count) {
+        prev_total_sessions += dayStat.sessions_count;
+        prev_total_session_duration += (dayStat.avg_session_duration || 0) * dayStat.sessions_count;
+        prev_total_bounce_rate += dayStat.bounce_rate || 0;
+        prevStatsCount++;
+      }
     }
+
+    const prev_avg_session_duration = prev_total_sessions > 0 
+      ? Math.round(prev_total_session_duration / prev_total_sessions)
+      : 0;
+    const prev_bounce_rate = prevStatsCount > 0 
+      ? Math.round((prev_total_bounce_rate / prevStatsCount) * 10) / 10
+      : 0;
 
     // Calculate percentage changes
     const change_views = prev_total_views > 0 
@@ -137,21 +165,25 @@ export async function GET(request: NextRequest) {
     const change_visitors = prev_unique_visitors.size > 0 
       ? ((unique_visitors.size - prev_unique_visitors.size) / prev_unique_visitors.size) * 100 
       : 0;
-
-    // Calculate avg session duration and bounce rate (simplified for now)
-    const avg_session_duration = 180; // 3 minutes default
-    const bounce_rate = 45.5; // Default bounce rate
+    const change_duration = prev_avg_session_duration > 0
+      ? ((avg_session_duration - prev_avg_session_duration) / prev_avg_session_duration) * 100
+      : 0;
+    const change_bounce = prev_bounce_rate > 0
+      ? ((bounce_rate - prev_bounce_rate) / prev_bounce_rate) * 100
+      : 0;
 
     const response = {
       summary: {
         total_views,
         unique_visitors: unique_visitors.size,
+        sessions_count: total_sessions,
         avg_session_duration,
+        avg_pages_per_session,
         bounce_rate,
         change_views,
         change_visitors,
-        change_duration: 0,
-        change_bounce: 0,
+        change_duration,
+        change_bounce,
       },
       daily: dailyData,
       devices,

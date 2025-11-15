@@ -21,10 +21,21 @@ export const connection = new IORedis(redisConfig);
 // Event interface for queue
 export interface AnalyticsEvent {
   site_id: string;
+  session_id?: string;
+  visitor_id?: string;
   event_type: string;
   path: string;
-  user_id: string;
+  user_id: string; // Deprecated, use visitor_id
   timestamp: string;
+  device_type?: string;
+  browser?: string;
+  os?: string;
+  referrer?: string;
+  screen_resolution?: string;
+  viewport_size?: string;
+  user_agent?: string;
+  user_props?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 // Initialize the queue
