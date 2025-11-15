@@ -1,0 +1,33 @@
+# Docker Compose Override for Local Development
+# This file automatically extends docker-compose.yml when running docker-compose commands
+# Usage: docker-compose up (automatically applies this override)
+
+version: '3.8'
+
+services:
+  api:
+    volumes:
+      # Hot reload for development
+      - ./:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"
+    command: npm run dev
+
+  worker:
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm run worker
+
+  cron:
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development

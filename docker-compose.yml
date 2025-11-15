@@ -12,6 +12,11 @@ services:
       - MONGO_INITDB_DATABASE=analytics
     networks:
       - analytics-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/analytics --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:latest
@@ -22,6 +27,11 @@ services:
       - redis_data:/data
     networks:
       - analytics-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build:
@@ -31,13 +41,26 @@ services:
     restart: always
     ports:
       - "3000:3000"
-    env_file:
-      - .env
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/analytics
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - QUEUE_NAME=analytics_events
+      - RATE_LIMIT_PER_MINUTE=100
+      - PORT=3000
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - analytics-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   worker:
     build:
@@ -45,11 +68,40 @@ services:
       dockerfile: Dockerfile.worker
     container_name: analytics-worker
     restart: always
-    env_file:
-      - .env
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/analytics
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - QUEUE_NAME=analytics_events
+      - BATCH_SIZE=50
+      - BATCH_TIMEOUT_MS=1000
+      - WORKER_CONCURRENCY=5
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - analytics-network
+
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: analytics-cron
+    restart: always
+    command: ["npm", "run", "cron:prod"]
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/analytics
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EVENT_RETENTION_DAYS=7
+      - CRON_TIMEZONE=UTC
+    depends_on:
+      mongodb:
+        condition: service_healthy
     networks:
       - analytics-network
 
@@ -60,3 +112,4 @@ volumes:
 networks:
   analytics-network:
     driver: bridge
+

@@ -1,35 +1,58 @@
 # Website Analytics Platform
 
-A high-performance, scalable website analytics backend built with Next.js, MongoDB, Redis, and BullMQ. Designed for fast event ingestion (<50ms) with queue-based asynchronous processing.
+A high-performance, production-ready website analytics backend built with Next.js, MongoDB, Redis, and BullMQ. Designed for fast event ingestion (<50ms) with queue-based asynchronous processing and comprehensive reporting capabilities.
+
+## 🚀 Features
+
+- **Fast Event Ingestion**: <50ms response time with queue-based processing
+- **API Key Authentication**: Secure site management with unique API keys
+- **Rate Limiting**: Redis-based rate limiting (configurable requests per minute)
+- **Aggregated Statistics**: Daily stats with path analytics and unique user tracking
+- **Batch Processing**: Optimized worker with bulk database operations
+- **Automated Cleanup**: Cron jobs for data retention management
+- **Docker Support**: Complete containerized deployment with health checks
+- **Comprehensive Testing**: Jest + Supertest integration tests
+- **Load Testing**: Artillery and k6 scripts included
+- **Type Safety**: Full TypeScript implementation with strict types
+
+---
 
 ## 🏗️ Architecture
 
-The system is built with 3 main components:
+The system is built with 4 main components:
 
 ### 1. **Ingestion API** (Next.js API Route)
 - **Endpoint**: `POST /api/event`
 - **Purpose**: Ultra-fast event capture
 - **Performance**: Target response time < 50ms
-- **Flow**: Validate → Queue → Return immediately
-- **Does NOT write to database directly**
+- **Flow**: Validate API key → Validate event → Queue → Return immediately
+- **Authentication**: Requires `x-api-key` header
 
 ### 2. **Background Processor** (Node.js Worker)
 - **Script**: `worker/processor.ts`
 - **Purpose**: Process queued events asynchronously
 - **Flow**: 
-  1. Pull events from BullMQ queue
-  2. Store raw events in `events` collection
+  1. Pull events from BullMQ queue in batches (default: 50)
+  2. Store raw events in `events` collection using bulkWrite
   3. Update aggregated stats in `daily_stats` collection
 - **Features**:
-  - Automatic retries (5 attempts)
-  - Exponential backoff
-  - Concurrent processing (configurable)
+  - Batch processing (configurable batch size)
+  - Automatic retries (5 attempts with exponential backoff)
+  - Concurrent processing
 
 ### 3. **Reporting API** (Next.js API Route)
 - **Endpoint**: `GET /api/stats?site_id=...&date=YYYY-MM-DD`
 - **Purpose**: Retrieve analytics data
 - **Returns**: Total views, unique users, top 10 paths
-- **Default**: Last 24 hours if date not specified
+- **Default**: Current date if not specified
+
+### 4. **Cron Worker** (Node.js Scheduled Job)
+- **Script**: `worker/cron.ts`
+- **Purpose**: Daily maintenance tasks
+- **Schedule**: Runs at midnight UTC
+- **Tasks**:
+  - Delete events older than retention period (default: 7 days)
+  - Prepare daily stats placeholders
 
 ---
 
@@ -38,16 +61,533 @@ The system is built with 3 main components:
 ```
 website-analytics/
 ├── app/
-│   └── api/
-│       ├── event/
-│       │   └── route.ts          # Ingestion API endpoint
-│       └── stats/
-│           └── route.ts          # Reporting API endpoint
+│   ├── api/
+│   │   ├── event/
+│   │   │   └── route.ts          # Ingestion API endpoint
+│   │   ├── stats/
+│   │   │   └── route.ts          # Reporting API endpoint
+│   │   ├── site/
+│   │   │   └── create/
+│   │   │       └── route.ts      # Site management endpoint
+│   │   └── health/
+│   │       └── route.ts          # Health check endpoint
+│   ├── layout.tsx
+│   └── page.tsx
 ├── lib/
 │   ├── db.ts                     # MongoDB connection & schemas
 │   ├── queue.ts                  # Redis & BullMQ setup
 │   ├── validateEvent.ts          # Zod validation schemas
+│   ├── rateLimiter.ts            # Redis-based rate limiting
+│   ├── stats.ts                  # Stats aggregation helpers
 │   └── utils.ts                  # Helper functions
+├── models/
+│   ├── Event.ts                  # Event TypeScript types
+│   ├── DailyStats.ts             # DailyStats TypeScript types
+│   └── Site.ts                   # Site TypeScript types
+├── worker/
+│   ├── processor.ts              # Event processing worker
+│   └── cron.ts                   # Scheduled maintenance tasks
+├── tests/
+│   ├── setup.ts                  # Jest test setup
+│   ├── event.test.ts             # Event ingestion tests
+│   ├── stats.test.ts             # Stats API tests
+│   └── site.test.ts              # Site management tests
+├── load-tests/
+│   ├── artillery.yml             # Artillery load test config
+│   └── ingest-load.k6.js         # k6 load test script
+├── scripts/
+│   ├── generate-sample-data.ts   # Sample data generator
+│   └── test-analytics.ts         # Manual API testing script
+├── docker-compose.yml            # Docker orchestration
+├── Dockerfile.server             # Server container
+├── Dockerfile.worker             # Worker container
+├── jest.config.ts                # Jest configuration
+├── .env.example                  # Environment variables template
+└── README.md                     # This file
+```
+
+---
+
+## 🛠️ Technology Stack
+
+- **Framework**: Next.js 14 (App Router) with TypeScript
+- **Database**: MongoDB (with Mongoose ODM)
+- **Queue**: Redis + BullMQ
+- **Validation**: Zod
+- **Testing**: Jest + Supertest
+- **Load Testing**: Artillery, k6
+- **Scheduling**: node-cron
+- **Containerization**: Docker + Docker Compose
+
+---
+
+## 📦 Installation
+
+### Prerequisites
+
+- Node.js >= 18.0.0
+- MongoDB >= 5.0
+- Redis >= 6.0
+- Docker & Docker Compose (optional, for containerized deployment)
+
+### Local Development Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd website-analytics
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and configure:
+   ```env
+   MONGODB_URI=mongodb://localhost:27017/analytics
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   RATE_LIMIT_PER_MINUTE=100
+   BATCH_SIZE=50
+   EVENT_RETENTION_DAYS=7
+   ```
+
+4. **Start MongoDB and Redis** (if not using Docker)
+   ```bash
+   # MongoDB
+   mongod --dbpath /path/to/data
+   
+   # Redis
+   redis-server
+   ```
+
+5. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+6. **In separate terminals, start the worker and cron**
+   ```bash
+   # Terminal 2: Worker
+   npm run worker
+   
+   # Terminal 3: Cron (optional)
+   npm run cron
+   ```
+
+---
+
+## 🐳 Docker Deployment
+
+### Quick Start
+
+1. **Build and start all services**
+   ```bash
+   npm run docker:up
+   ```
+   
+   This starts:
+   - MongoDB (port 27017)
+   - Redis (port 6379)
+   - Next.js API server (port 3000)
+   - Background worker
+   - Cron worker
+
+2. **View logs**
+   ```bash
+   npm run docker:logs
+   ```
+
+3. **Stop all services**
+   ```bash
+   npm run docker:down
+   ```
+
+### Manual Docker Commands
+
+```bash
+# Build images
+docker-compose build
+
+# Start services
+docker-compose up -d
+
+# View specific service logs
+docker-compose logs -f api
+docker-compose logs -f worker
+
+# Restart a service
+docker-compose restart api
+
+# Scale workers
+docker-compose up -d --scale worker=3
+```
+
+---
+
+## 📖 API Documentation
+
+### 1. Create a Site
+
+**Endpoint**: `POST /api/site/create`
+
+**Request**:
+```json
+{
+  "name": "My Awesome Website"
+}
+```
+
+**Response** (201):
+```json
+{
+  "success": true,
+  "site_id": "my-awesome-website-a1b2c3",
+  "api_key": "48-character-hex-string"
+}
+```
+
+### 2. Ingest Event
+
+**Endpoint**: `POST /api/event`
+
+**Headers**:
+```
+Content-Type: application/json
+x-api-key: your-api-key-here
+```
+
+**Request**:
+```json
+{
+  "event_type": "pageview",
+  "path": "/pricing",
+  "user_id": "user-12345",
+  "timestamp": "2025-11-15T10:30:00Z" // optional
+}
+```
+
+**Response** (200):
+```json
+{
+  "success": true,
+  "message": "Event queued successfully",
+  "processing_time_ms": 12
+}
+```
+
+**Error Responses**:
+- `401`: Missing or invalid API key
+- `400`: Validation error
+- `429`: Rate limit exceeded
+
+### 3. Get Statistics
+
+**Endpoint**: `GET /api/stats`
+
+**Query Parameters**:
+- `site_id` (required): Your site ID
+- `date` (optional): Date in YYYY-MM-DD format (defaults to today)
+
+**Example**:
+```
+GET /api/stats?site_id=my-site-abc123&date=2025-11-15
+```
+
+**Response** (200):
+```json
+{
+  "success": true,
+  "data": {
+    "site_id": "my-site-abc123",
+    "date": "2025-11-15",
+    "total_views": 1450,
+    "unique_users_count": 212,
+    "top_paths": [
+      { "path": "/pricing", "views": 700 },
+      { "path": "/blog/post-1", "views": 500 },
+      { "path": "/", "views": 250 }
+    ]
+  },
+  "processing_time_ms": 8
+}
+```
+
+### 4. Health Check
+
+**Endpoint**: `GET /api/health`
+
+**Response** (200):
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-11-15T10:30:00.000Z"
+}
+```
+
+---
+
+## 🧪 Testing
+
+### Run All Tests
+
+```bash
+npm test
+```
+
+### Run Tests in Watch Mode
+
+```bash
+npm run test:watch
+```
+
+### Run Tests with Coverage
+
+```bash
+npm run test:coverage
+```
+
+### Test Suites
+
+- **Site Management Tests**: Create sites, validate API keys
+- **Event Ingestion Tests**: API key auth, validation, rate limiting
+- **Stats API Tests**: Query aggregated data, date filtering
+
+### Load Testing
+
+#### Using Artillery
+
+```bash
+# Set your API key
+export API_KEY=your-api-key-here
+
+# Run load test
+npm run load:test
+```
+
+#### Using k6
+
+```bash
+# Install k6 first: https://k6.io/docs/getting-started/installation/
+
+# Set environment variables
+export API_KEY=your-api-key-here
+export API_BASE=http://localhost:3000
+
+# Run load test
+npm run load:test:k6
+```
+
+**Expected Performance**:
+- p95 response time < 200ms
+- p99 response time < 500ms
+- Error rate < 5%
+- Throughput: 1000+ requests/second
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGODB_URI` | `mongodb://localhost:27017/analytics` | MongoDB connection string |
+| `REDIS_HOST` | `localhost` | Redis host |
+| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_PASSWORD` | - | Redis password (optional) |
+| `QUEUE_NAME` | `analytics_events` | BullMQ queue name |
+| `BATCH_SIZE` | `50` | Worker batch size |
+| `BATCH_TIMEOUT_MS` | `1000` | Worker batch timeout |
+| `WORKER_CONCURRENCY` | `5` | Number of concurrent jobs |
+| `RATE_LIMIT_PER_MINUTE` | `100` | Max requests per minute per IP |
+| `EVENT_RETENTION_DAYS` | `7` | Days to keep raw events |
+| `CRON_TIMEZONE` | `UTC` | Timezone for cron jobs |
+| `PORT` | `3000` | API server port |
+| `NODE_ENV` | `development` | Environment mode |
+
+---
+
+## 📊 Database Schema
+
+### `events` Collection
+
+```typescript
+{
+  site_id: string;
+  event_type: string;
+  path: string;
+  user_id: string;
+  timestamp: Date;
+  processed_at: Date;
+}
+```
+
+**Indexes**:
+- `{ site_id: 1, timestamp: -1 }`
+
+### `daily_stats` Collection (dailystats)
+
+```typescript
+{
+  site_id: string;
+  date: string; // "YYYY-MM-DD"
+  total_views: number;
+  unique_users: string[];
+  path_counts: Map<string, number>;
+  updated_at: Date;
+}
+```
+
+**Indexes**:
+- `{ site_id: 1, date: 1 }` (unique)
+
+### `sites` Collection
+
+```typescript
+{
+  site_id: string; // unique
+  api_key: string; // unique
+  name: string;
+  created_at: Date;
+}
+```
+
+**Indexes**:
+- `{ site_id: 1 }` (unique)
+- `{ api_key: 1 }` (unique)
+
+---
+
+## 🚀 Performance Optimization
+
+### Ingestion Performance
+
+- Queue-based architecture prevents database bottlenecks
+- Rate limiting protects against abuse
+- Batch processing reduces database operations
+- Indexed queries for fast lookups
+
+### Worker Performance
+
+- Configurable batch size (default: 50 events)
+- Bulk write operations for events and stats
+- Concurrent job processing (default: 5)
+- Exponential backoff for retries
+
+### Query Performance
+
+- Pre-aggregated daily stats eliminate expensive queries
+- Limited top paths (10) for consistent response times
+- Indexed queries on site_id and date
+
+---
+
+## 🔒 Security
+
+- **API Key Authentication**: All ingestion requests require valid API keys
+- **Rate Limiting**: Per-IP rate limiting prevents abuse
+- **Input Validation**: Zod schemas validate all inputs
+- **MongoDB Indexes**: Prevent slow queries and improve performance
+- **Environment Variables**: Sensitive data stored in .env (not committed)
+
+---
+
+## 📈 Monitoring & Observability
+
+### Health Checks
+
+All services include health checks:
+- API: `GET /api/health`
+- MongoDB: Connection ping
+- Redis: PING command
+- Worker: Process monitoring
+
+### Logging
+
+- Structured logging with timestamps
+- Performance timers for API routes
+- Error tracking with stack traces
+- Queue job status tracking
+
+### Metrics to Monitor
+
+- API response times (p50, p95, p99)
+- Queue length and processing rate
+- Database connection pool usage
+- Redis memory usage
+- Worker processing rate
+- Error rates per endpoint
+
+---
+
+## 🐛 Troubleshooting
+
+### Worker Not Processing Events
+
+1. Check Redis connection: `redis-cli ping`
+2. View worker logs: `npm run worker` or `docker-compose logs worker`
+3. Verify queue name matches in .env
+
+### High API Latency
+
+1. Check MongoDB connection and indexes
+2. Verify Redis is running
+3. Monitor queue length: May need more workers
+4. Review rate limiting settings
+
+### Tests Failing
+
+1. Ensure test MongoDB and Redis are running
+2. Check TEST_MONGODB_URI in .env
+3. Run `npm install` to update dependencies
+4. Clear test database: `mongo analytics_test --eval "db.dropDatabase()"`
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+---
+
+## 📝 License
+
+MIT License - see LICENSE file for details
+
+---
+
+## 🎯 Roadmap
+
+- [ ] WebSocket support for real-time stats
+- [ ] Dashboard UI with charts
+- [ ] Multi-tenant support
+- [ ] Geolocation tracking
+- [ ] Custom event properties
+- [ ] Data export capabilities
+- [ ] Anomaly detection
+- [ ] A/B testing integration
+
+---
+
+## 📧 Support
+
+For issues, questions, or contributions, please open an issue on GitHub.
+
+---
+
+**Built with ❤️ using Next.js, MongoDB, and Redis**
+
 ├── worker/
 │   └── processor.ts              # Background event processor
 ├── package.json

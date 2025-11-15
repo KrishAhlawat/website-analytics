@@ -1,16 +1,64 @@
 config:
   target: "http://localhost:3000"
   phases:
+    # Warm-up phase
+    - duration: 30
+      arrivalRate: 10
+      name: "Warm up"
+    # Normal load
+    - duration: 120
+      arrivalRate: 50
+      name: "Sustained load"
+    # Spike test
     - duration: 60
-      arrivalRate: 20
+      arrivalRate: 200
+      name: "Spike test"
+    # Cool down
+    - duration: 30
+      arrivalRate: 10
+      name: "Cool down"
+  
+  # Performance thresholds
+  ensure:
+    maxErrorRate: 5 # Max 5% error rate
+    p95: 200 # 95th percentile < 200ms
+    p99: 500 # 99th percentile < 500ms
+
+  # Environment variables
+  variables:
+    api_key: "{{ $processEnvironment.API_KEY }}"
+  
+  # Plugins
+  plugins:
+    expect: {}
+    metrics-by-endpoint: {}
+
 scenarios:
-  - flow:
+  # Main ingestion test
+  - name: "Event Ingestion"
+    weight: 80
+    flow:
       - post:
           url: "/api/event"
           headers:
             Content-Type: "application/json"
             x-api-key: "{{ api_key }}"
           json:
-            event_type: "pageview"
-            path: "/load-test"
-            user_id: "user-{{ $randomInt(1,1000) }}"
+            event_type: "{{ $randomString() }}"
+            path: "/{{ $randomString() }}"
+            user_id: "user-{{ $randomNumber(1, 10000) }}"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: success
+
+  # Stats query test
+  - name: "Stats Query"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/stats?site_id=test-site&date={{ $moment().format('YYYY-MM-DD') }}"
+          expect:
+            - statusCode: 200
+            - contentType: json
+
