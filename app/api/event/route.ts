@@ -17,34 +17,60 @@ import { checkRateLimit } from '@/lib/rateLimiter';
 export async function POST(request: NextRequest) {
   const timer = new PerformanceTimer('Ingestion API');
   
+  // CORS headers
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
+  };
+  
   try {
     // Rate limit by IP
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || request.headers.get('host') || 'unknown';
     const rl = await checkRateLimit(ip);
     if (!rl.allowed) {
-      return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 });
+      return NextResponse.json(
+        { success: false, error: 'Rate limit exceeded' },
+        { status: 429, headers: corsHeaders }
+      );
     }
 
-    // Authenticate by API key
-    const apiKey = request.headers.get('x-api-key');
+    // Authenticate by API key (check both variations)
+    const apiKey = request.headers.get('x-api-key') || request.headers.get('X-API-Key');
+    console.log('[Event API] Received API key:', apiKey ? apiKey.substring(0, 10) + '...' : 'NONE');
+    
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: 'Missing x-api-key header' }, { status: 401 });
+      console.log('[Event API] Missing API key header');
+      return NextResponse.json(
+        { success: false, error: 'Missing API key header' },
+        { status: 401, headers: corsHeaders }
+      );
     }
 
     await connectDB();
     const site = await Site.findOne({ api_key: apiKey }).lean();
+    console.log('[Event API] Site found:', site ? site.site_id : 'NO MATCH');
+    
     if (!site) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      console.log('[Event API] Looking for API key:', apiKey);
+      const allSites = await Site.find({}).select('site_id api_key').lean();
+      console.log('[Event API] Available sites:', allSites.map(s => ({ id: s.site_id, key: s.api_key.substring(0, 10) + '...' })));
+      return NextResponse.json(
+        { success: false, error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
     }
 
     // Parse request body
     const body = await request.json();
+    console.log('[Event API] Received body:', JSON.stringify(body).substring(0, 200));
 
     // Validate event data (site_id optional in schema)
     const validation = validateEvent(body);
     
     if (!validation.success) {
       timer.end();
+      console.log('[Event API] Validation failed:', validation.errors?.issues);
       return NextResponse.json(
         {
           success: false,
@@ -54,7 +80,7 @@ export async function POST(request: NextRequest) {
             message: issue.message,
           })),
         },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -73,12 +99,18 @@ export async function POST(request: NextRequest) {
         message: 'Event queued successfully',
         processing_time_ms: duration,
       },
-      { status: 200 }
+      { status: 200, headers: corsHeaders }
     );
     
   } catch (error: any) {
     timer.end();
     console.error('[Ingestion API] Error:', error);
+    
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
+    };
     
     return NextResponse.json(
       {
@@ -86,7 +118,7 @@ export async function POST(request: NextRequest) {
         error: 'Internal server error',
         message: process.env.NODE_ENV === 'development' ? error.message : undefined,
       },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
